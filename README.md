@@ -24,12 +24,12 @@
 ## 安装
 
 ```bash
-git clone https://github.com/<your-name>/wyy-rate.git
-cd wyy-rate && ./install.sh          # 装到 ~/.claude/skills/，重启 Claude Code 后生效
+git clone https://github.com/Tousengi/wyy-rate.git
 ```
 
-`install.sh` 就是把 `skills/wyy-rate/` 拷到 `~/.claude/skills/`，装成全局的，任何目录都能用 `/wyy-rate`。
-只想在某个项目里用，就手动拷到 `<项目>/.claude/skills/`（项目级优先于全局，两边都放容易改了一边用到另一边）。
+把 `skills/wyy-rate/` 这个目录放进 Claude Code 的 skills 目录即可 —— 放 `~/.claude/skills/` 是全局可用，
+放 `<项目>/.claude/skills/` 只在该项目可用。不确定放哪、怎么放，直接问你的 Claude Code。
+装好重启一次，`/wyy-rate` 就出现了。
 
 ## 使用
 
