@@ -19,11 +19,11 @@
 
 ```bash
 git clone https://github.com/<your-name>/wyy-rate.git
-mkdir -p ~/.claude/skills
-cp -r wyy-rate/skills/wyy-rate ~/.claude/skills/
+cd wyy-rate && ./install.sh          # 装到 ~/.claude/skills/，重启 Claude Code 后生效
 ```
 
-放进 `~/.claude/skills/` 是全局可用；只想在某个项目里用就放 `<项目>/.claude/skills/`。
+`install.sh` 就是把 `skills/wyy-rate/` 拷到 `~/.claude/skills/`，装成全局的，任何目录都能用 `/wyy-rate`。
+只想在某个项目里用，就手动拷到 `<项目>/.claude/skills/`（项目级优先于全局，两边都放容易改了一边用到另一边）。
 
 ## 使用
 
