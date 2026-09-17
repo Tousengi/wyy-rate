@@ -37,12 +37,17 @@ git clone https://github.com/Tousengi/wyy-rate.git
 账号得是音乐合伙人，否则没有任务。
 
 ```
-/wyy-rate                      # 按默认跑完当天 20 首
-/wyy-rate 只评 5 首             # 改首数
-/wyy-rate 总评 4 星             # 改分数
-/wyy-rate dryRun               # 只打星不提交，验证页面没改版
-/wyy-rate https://mp.music.163.com/<appId>/mission/index.html?isH5=1&from=homeAss   # 指定自己的网址
+/wyy-rate                      # 默认：20 首，总评 3 星，小项 2~4 星
+/wyy-rate song 5               # 只评 5 首
+/wyy-rate star 4               # 总评 4 星
+/wyy-rate song 10 star 4       # 组合，顺序随意
+/wyy-rate sub 3-5              # 小项随机区间改成 3~5 星
+/wyy-rate listen 20            # 每首至少听 20 秒
+/wyy-rate dry                  # 只打星不提交，验证页面没改版
+/wyy-rate url <评定页网址>      # 指定自己的网址（也可以 appid <十六进制串>）
 ```
+
+`key value` 和 `key=value` 都行；直接说人话（「只评 5 首」）它也听得懂。
 
 ### 关于网址
 

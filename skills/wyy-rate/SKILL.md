@@ -36,16 +36,34 @@ BASE = https://mp.music.163.com/<appId>/
   没登录会看到未登录首页 —— 让用户自己登录，不要代填账号密码。
 - 账号本身得是音乐合伙人，否则没有任务。
 
-## 参数（用户可在调用时覆盖）
+## 调用参数
 
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| `songs` | 20 | 本次评几首 |
-| `overall` | 3 | 总评星数 |
-| `subMin`/`subMax` | 2 / 4 | 小项随机星数区间 |
-| `listen` | 15 | 每首最少播放秒数 |
-| `mute` | true | 静音播放（不影响计时，计时跟 `audio.currentTime`） |
-| `dryRun` | false | 只打星不提交，用于验证页面没改版 |
+用户在 `/wyy-rate` 后面跟简短的 flag，`key value` 和 `key=value` 两种写法都认，顺序任意，
+大小写不敏感；没给的用默认值。用户用自然语言说（「只评 5 首」「总评打 4 星」）也照做。
+
+```
+/wyy-rate                          # 默认：20 首，总评 3 星，小项 2~4 星
+/wyy-rate song 5                   # 只评 5 首
+/wyy-rate star 4                   # 总评 4 星
+/wyy-rate song 10 star 4           # 组合
+/wyy-rate sub 3-5                  # 小项随机区间改成 3~5 星
+/wyy-rate listen 20                # 每首至少听 20 秒
+/wyy-rate dry                      # 只打星不提交（验证页面没改版）
+/wyy-rate url <评定页网址>          # 指定自己的网址（或 appId <十六进制串>）
+```
+
+| flag | 别名 | 对应 `__nmp.start()` 参数 | 默认 | 说明 |
+|---|---|---|---|---|
+| `song N` | `songs`, `s` | `songs` | 20 | 评几首 |
+| `star N` | `stars` | `overall` | 3 | 总评星数（1~5） |
+| `sub A-B` | `subs` | `subMin`/`subMax` | 2-4 | 小项随机区间；写 `sub 3` 表示固定 3 星 |
+| `listen N` | — | `listen` | 15 | 每首最少播放秒数 |
+| `dry` | `dryrun` | `dryRun:true` | false | 只打星不提交 |
+| `mute off` | — | `mute:false` | true(静音) | 让它出声 |
+| `url <网址>` | `appid <id>` | — | 见上文 | 覆盖 `BASE` |
+
+参数非法时（比如 `star 9`、`song 50`）不要瞎猜：按上限截断并在汇报里说明，或直接问用户。
+今日上限是 20 首，`song` 超过 20 时提醒用户多出来的评不了。
 
 ## 执行步骤
 
@@ -59,7 +77,7 @@ BASE = https://mp.music.163.com/<appId>/
 2. 打开**第一批**网址，等 5~7 秒。首次可能有公告弹窗，「我知道了」常在可视区外，用 JS 点：
    `[...document.querySelectorAll('div,span,p,button,a')].find(e=>e.children.length===0&&e.textContent.trim()==='我知道了')?.click()`
 3. 读同目录 `bot.js`，整段作为 `javascript_tool` 的 `text` 执行 → 返回 `wyy-rate driver ready`。
-4. `__nmp.start({songs:20})`（异步，立即返回）。
+4. 按上面的 flag 拼出配置，例如 `/wyy-rate song 5 star 4` → `__nmp.start({songs:5, overall:4})`（异步，立即返回）。
    评完 5 首后会弹「评定完成」页，driver 会自己点「继续评定」续评剩下 15 首。
 5. 轮询 `__nmp.status()` 直到 `running:false`。一首约 20 秒，20 首约 7 分钟。
    **轮询用 `browser_batch` 里最多 3~4 个 10 秒 `wait`（≈30~40 秒）**，60 秒的批次会把工具等超时。
