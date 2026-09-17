@@ -27,14 +27,14 @@
 git clone https://github.com/Tousengi/wyy-rate.git
 ```
 
-把 `skills/wyy-rate/` 这个目录放进 Claude Code 的 skills 目录即可 —— 放 `~/.claude/skills/` 是全局可用，
-放 `<项目>/.claude/skills/` 只在该项目可用。不确定放哪、怎么放，直接问你的 Claude Code。
-装好重启一次，`/wyy-rate` 就出现了。
+装好重启一次，`/wyy-rate` 即可使用。
 
 ## 使用
 
 前置：Chrome 装好 Claude in Chrome 扩展并连接，**且那个 Chrome 里已经登录网易云音乐**
-（登录 `music.163.com` 即可，页面走同一套 cookie）。账号得是音乐合伙人，否则没有任务。
+（登录 `music.163.com` 即可，页面走同一套 cookie）。
+
+账号得是音乐合伙人，否则没有任务。
 
 ```
 /wyy-rate                      # 按默认跑完当天 20 首
