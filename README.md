@@ -1,4 +1,4 @@
-# wyy-rate
+# 网易云音乐「音乐合伙人」每日评分系统自动化
 
 网易云音乐「音乐合伙人」每日评定任务的自动化 [Claude Code](https://claude.com/claude-code) Skill。
 配合 [Claude in Chrome](https://claude.ai/chrome) 扩展，在你自己的浏览器里完成当天的 20 首评定。
