@@ -31,8 +31,9 @@ git clone https://github.com/Tousengi/wyy-rate.git
 
 ## 使用
 
-前置：Chrome 装好 Claude in Chrome 扩展并连接，**且 Chrome 里已经登录网易云音乐**
-（还在修改中，可能只需要第一次手动登陆即可）。
+前置
+- Chrome 装好 Claude in Chrome 扩展并连接
+- Chrome 里已经登录网易云音乐（还在修改中，可能只需要第一次手动登陆即可）。
 
 账号得是音乐合伙人，否则没有任务。
 
