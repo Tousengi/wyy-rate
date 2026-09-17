@@ -35,8 +35,6 @@ git clone https://github.com/Tousengi/wyy-rate.git
 - Chrome 装好 Claude in Chrome 扩展并连接
 - Chrome 里已经登录网易云音乐（还在修改中，可能只需要第一次手动登陆即可）。
 
-账号得是音乐合伙人，否则没有任务。
-
 ```
 /wyy-rate                      # 默认：20 首，总评 3 星，小项 2~4 星
 /wyy-rate song 5               # 只评 5 首
