@@ -49,8 +49,13 @@ BASE = https://mp.music.163.com/<appId>/
 
 ## 执行步骤
 
-1. `list_connected_browsers` 确认 Chrome 在线；`tabs_context_mcp{createIfEmpty:true}` 取 tabId。
-   **每次会话重新取 tabId，不要复用旧的。**
+1. `list_connected_browsers` 确认 Chrome 在线。**返回空数组时自己把浏览器叫起来，不要让用户动手**：
+   - macOS：`open -a "Google Chrome"`（没开就启动；开着但扩展 service worker 睡了，激活一下也会重连）
+   - Windows：`start chrome`；Linux：`google-chrome &`
+   - 然后重新 `list_connected_browsers` 复查，最多重试 3 次（每次调用本身就有几秒间隔）。
+   - 仍连不上才找用户，并说明可能原因：机器刚休眠/锁屏、扩展被禁用、或没登录 claude.ai。
+     机器休眠这一类我这边修不了，只能请用户唤醒电脑。
+   连上后 `tabs_context_mcp{createIfEmpty:true}` 取 tabId。**每次会话重新取 tabId，不要复用旧的。**
 2. 打开**第一批**网址，等 5~7 秒。首次可能有公告弹窗，「我知道了」常在可视区外，用 JS 点：
    `[...document.querySelectorAll('div,span,p,button,a')].find(e=>e.children.length===0&&e.textContent.trim()==='我知道了')?.click()`
 3. 读同目录 `bot.js`，整段作为 `javascript_tool` 的 `text` 执行 → 返回 `wyy-rate driver ready`。
@@ -71,7 +76,8 @@ driver 会直接报「这首已经评过了」并停下 —— **不要重复评
 
 - 播放卡住（很常见）：driver 自带看门狗，4 秒不前进就「暂停→重播」，踢 4 次仍不动才抛 `STALLED`；
   这时重开当前批次网址、重新注入、按剩余首数再 `start`（已提交的不会重复出现）。
-- Chrome 扩展中途断连不影响评定 —— **driver 跑在页面里会自己继续**；重连后 `__nmp.status()` 看进度即可。
+- Chrome 扩展中途断连不影响评定 —— **driver 跑在页面里会自己继续**；
+  按第 1 步自己重连（`open -a "Google Chrome"`），再 `__nmp.status()` 看进度即可，不用打扰用户。
 - 浏览器拦截自动播放时 `audio.paused=true`，driver 会反复 `play()` 并按真实播放秒数计时，不会偷跑。
 
 ## 硬性规则

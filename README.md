@@ -74,6 +74,7 @@ skills/wyy-rate/
 | 一批最后一首按钮叫「完成评定」不是「提交」 | 两种文案都认 |
 | 重开页面会带出已评过的旧分数且没有提交按钮 | 识别为「已评过」直接停，不重复提交 |
 | Chrome 扩展中途断连 | driver 跑在页面里会自己继续，重连后 `__nmp.status()` 接着看 |
+| Chrome 没开 / 扩展 service worker 睡了 | Claude 自己 `open -a "Google Chrome"` 唤醒并重连，不需要你动手 |
 
 ## License
 
