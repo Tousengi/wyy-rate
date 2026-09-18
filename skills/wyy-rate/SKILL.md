@@ -18,6 +18,8 @@ BASE = https://mp.music.163.com/<appId>/
 
 - 用户在调用时给了网址或 appId，就用他给的。
 - 否则用默认值 `68429fb40fd3640105f60c9a`（2026-09 实测可用），**不要以为它是每天变的，它是小程序发布号**。
+- **网址已经记在这里了：绝不要让用户自己开页面、也不要问他要网址。** 直接开 URL 就行；
+  只有默认值和备用 appId 都打不开时才找用户要新链接。
 - 默认值 404 / 白屏时，让用户从手机 App 里「音乐合伙人 → 分享 → 复制链接」发来一条，
   取路径第一段作为新的 appId；备用 appId：`605ab15bcc23b01f8e8a2dfb`。
 
@@ -76,13 +78,19 @@ BASE = https://mp.music.163.com/<appId>/
    连上后 `tabs_context_mcp{createIfEmpty:true}` 取 tabId。**每次会话重新取 tabId，不要复用旧的。**
 2. 打开**第一批**网址，等 5~7 秒。首次可能有公告弹窗，「我知道了」常在可视区外，用 JS 点：
    `[...document.querySelectorAll('div,span,p,button,a')].find(e=>e.children.length===0&&e.textContent.trim()==='我知道了')?.click()`
+2.5 **解锁自动播放**：截图拿坐标系尺寸 → 跑探点代码算出惰性点 → `computer left_click` 点它
+   （见下面「必做的前置手势」，不做这步必卡；坐标必须算，不能写死）。
 3. 读同目录 `bot.js`，整段作为 `javascript_tool` 的 `text` 执行 → 返回 `wyy-rate driver ready`。
-4. 按上面的 flag 拼出配置，例如 `/wyy-rate song 5 star 4` → `__nmp.start({songs:5, overall:4})`（异步，立即返回）。
-   评完 5 首后会弹「评定完成」页，driver 会自己点「继续评定」续评剩下 15 首。
+4. 按上面的 flag 拼出配置，**一次就把 20 首全下去**：`__nmp.start({songs:20, overall:3})`（异步，立即返回）。
+   不要分两次跑、也不要跑完 5 首就回来问用户要不要继续 —— 5 首和 15 首是一趟活。
 5. 轮询 `__nmp.status()` 直到 `running:false`。一首约 20 秒，20 首约 7 分钟。
    **轮询用 `browser_batch` 里最多 3~4 个 10 秒 `wait`（≈30~40 秒）**，60 秒的批次会把工具等超时。
-6. 如果第 4 步在第 6 首报 `NEED_RELOAD`（完成页的「继续评定」点不动），
-   改开**第二批**网址（`isContinue=1`）→ **重新注入 bot.js**（换页后脚本就没了）→ `__nmp.start({songs:15})`。
+6. 评完 5 首后会弹「评定完成」页，driver 先自己点「继续评定」；点不动时（那是 App 路由）
+   driver **自己跳到 `isContinue=1` 的网址**并把进度存进 `localStorage`。
+   这时 `__nmp` 没了（换页脚本就清空），`javascript_tool` 会报 `__nmp is not defined` 或
+   `status()` 拿不到 —— **别当成失败，也别问用户**：
+   **先补一次解锁点击**（换页后 user activation 清零了），再重新注入 bot.js，
+   注入返回里会带 `auto-resuming: 5 done, 15 left`，它自己接着跑。整个过程中途不需要用户任何操作。
 7. 打开主页核对「本期积分」，并汇报：评了几首、每首的总评与小项分（`__nmp.detail`）、当前积分、卡了几次。
 
 ## 判断「今天已经做完」
@@ -90,10 +98,116 @@ BASE = https://mp.music.163.com/<appId>/
 重开评定页时，如果歌曲**带着旧分数显示、且没有提交按钮**，说明这批已经评过了。
 driver 会直接报「这首已经评过了」并停下 —— **不要重复评定**（不加分，还多一次无意义提交）。
 
+## 必做的前置手势：解锁自动播放（2026-09-18 踩过，最容易卡死的地方）
+
+**页面加载完必须先用 `computer` 点一下页面，否则 20 首一首都跑不了。** 原因：
+
+```
+audio.play() -> NotAllowedError: play() failed because the user didn't interact with the document first.
+navigator.userActivation.hasBeenActive === false
+```
+
+静音豁免在这页不管用 —— **页面自己会把 `audio.muted` 改回 `false`**，于是变成「有声自动播放」被
+Chrome 拦掉。只有 `computer` 的 `left_click`（走 CDP 的可信输入事件）能置上 user activation。
+
+**`ref` 点击没用**（实测）：`computer {action:"left_click", ref:"ref_2"}` 走的是 DOM 层
+`.click()`，`hasBeenActive` 仍是 `false`、`play()` 照样 `NotAllowedError`。所以必须给坐标。
+
+**但绝对不要写死坐标** —— 每个人屏幕尺寸、窗口大小、页面缩放都不一样，写死会点到别的东西。
+坐标要算出来：先截图拿到坐标系尺寸，再按比例扫一个"祖先链上没有 onClick、不在按钮/星星里"的
+惰性点，最后按 `坐标系宽 / innerWidth` 换算。整套探点代码（`computer screenshot` 拿到
+`coordinate frame: W×H` 后，把 `FRAME_W/FRAME_H` 填进去执行，返回 `pick.frame` 就是要点的坐标）：
+
+```js
+const FRAME_W = 1568, FRAME_H = 734;   // ← 换成截图报的 coordinate frame
+function inert(el) {
+  var n = el;
+  for (var i = 0; i < 5 && n; i++) {
+    if (['BUTTON','A','LI','UL'].indexOf(n.tagName) >= 0) return false;
+    var ks = Object.keys(n).filter(s => s.indexOf('__react') === 0);
+    for (var j = 0; j < ks.length; j++) {
+      var v = n[ks[j]];
+      if (v && (v.onClick || (v.memoizedProps && v.memoizedProps.onClick))) return false;
+    }
+    n = n.parentElement;
+  }
+  return !!el;
+}
+var pick = null, fx = [0.5,0.3,0.7,0.1,0.9], fy = [0.02,0.05,0.10,0.5,0.95];
+for (var yi = 0; yi < fy.length && !pick; yi++)
+  for (var xi = 0; xi < fx.length && !pick; xi++) {
+    var x = innerWidth * fx[xi], y = innerHeight * fy[yi];
+    if (inert(document.elementFromPoint(x, y)))
+      pick = { frame: [Math.round(x * FRAME_W / innerWidth), Math.round(y * FRAME_H / innerHeight)] };
+  }
+pick
+```
+
+实测（1920 最大化窗口、该域缩放 25%、`innerWidth 7680`）：第一个候选点 (50%, 2%) 命中歌名
+`H4`，算出 `[784, 15]`，点完 `hasBeenActive === true`、音频起播。换别的屏幕比例会算出别的坐标，
+这才是要的效果。
+
+- 点完验一下 `navigator.userActivation.hasBeenActive === true`，再注入/`start()`。
+- **一次点击对整个页面生命周期有效**，一批 20 首只需要点一次；但**每次换页/刷新后要重新点**
+  （包括 driver 自己跳到 `isContinue=1` 那次）。
+- **静音**：页面会自己把 `audio.muted` 改回 `false`，所以 driver 在 `play`/`playing`/
+  `volumechange`/`loadedmetadata` 上都挂了钩子、外加 worker 时钟每 250ms 压一次
+  `muted=true; volume=0`，注入即生效（不等 `start()`）。用户默认不想听见声音。
+  **但页面加载到注入之间那几秒是压不住的** —— 想彻底安静就尽快注入，或者用 `mute off` 才放声。
+- 忘了点的话 driver 会立刻抛 `NO_USER_GESTURE`（不再白等 90 秒）—— 补一次点击再 `start()` 即可。
+
+## 后台标签页的定时器节流（2026-09-18 踩过）
+
+用户会在同一个 Chrome 里干别的事，所以评定页**基本一直是隐藏标签页**（`document.hidden===true`），
+Chrome 会把隐藏页的 `setTimeout` 节流到秒级甚至分钟级。实测后果：
+
+- 小项循环从 3 秒变成 **2 分 41 秒**（一首 2.5 分钟 → 20 首要 50 分钟）；
+- 看门狗误报「播放卡住」：音频明明在播，只是两次循环迭代的间隔被拉长超过了阈值，
+  踢满 4 次就抛假 `STALLED`。
+
+`bot.js` 里已经解决，不要试图靠"把标签页切到前台"来绕：
+- `sleep()` 用 `setTimeout` + 音频 `timeupdate` 双时钟，谁先到谁唤醒。媒体播放不受节流、
+  `timeupdate` 每秒约 4 次照常触发，所以隐藏页里 sleep 也按真实时间走。
+- 看门狗阈值放宽到 6 秒，且**播放一恢复就把踢计数清零**，切歌的短暂 paused 不再累进成 STALLED。
+
+**不要为了让它跑快就切换用户的活动标签页。**
+
+## 不要碰用户的浏览器窗口
+
+- **绝不调用 `resize_window`，也不要改缩放。** 用户在同一个 Chrome 里干别的事，动窗口是干扰。
+- 这页的 rem 布局在非 100% 缩放下 `getBoundingClientRect` 会给出很夸张的数（viewport 被算成
+  7680px 宽、元素 y=10074、隐藏弹窗 x=-119988 之类）—— **这些不是故障，不用管**：
+  driver 打星星、点提交全走 DOM `.click()`，不依赖坐标，缩放多少都能跑。
+  唯一需要坐标的就是上面那一次解锁点击，点页面顶部就行。
+- 别把这些坐标当成"排版坏了"去找用户改缩放。真正会卡死的只有 `NO_USER_GESTURE`。
+
+## 全自动循环（用户只输一条命令，中途别问他任何事）
+
+一个稳定跑完 20 首的循环就这四步，卡住就回到第 1 步，不要找用户：
+
+1. 开当前批次网址（第一批，或已评过 5 首就直接开 `isContinue=1`），等 7~8 秒；
+2. **解锁自动播放**：截图 → 探点 → `computer left_click` 点算出来的坐标，
+   顺手 `audio.muted=true; volume=0`；**坐标每次算，别用上次的**；
+3. 整段注入 `bot.js`。有存档时注入就返回 `auto-resuming: N done, M left`，不用再调 `start()`；
+   没存档才 `__nmp.start({songs:20, overall:3})`；
+4. 轮询 `__nmp.status()`。三种结果：
+   - `running:true` → 继续轮询；
+   - `running:false, error:null, done` 到数 → 完事，去主页核对积分；
+   - `__nmp is not defined`（driver 自己换页了）或 `error` 非空 → **回第 1 步**，
+     存档里的 `done` 会让它接着跑，已提交的不会重复评。
+
+**轮询单次 `await` 不要超过 30 秒** —— CDP 的 `Runtime.evaluate` 到 45 秒会报
+「timed out ... renderer may be frozen」，但那只是我的调用超时，driver 在页面里照跑。
+
 ## 卡住与断连
 
-- 播放卡住（很常见）：driver 自带看门狗，4 秒不前进就「暂停→重播」，踢 4 次仍不动才抛 `STALLED`；
-  这时重开当前批次网址、重新注入、按剩余首数再 `start`（已提交的不会重复出现）。
+- 播放卡住（很常见）：driver 自带看门狗，6 秒不前进就「暂停→重播」，踢 4 次仍不动才抛 `STALLED`；
+  这时重开当前批次网址、重新注入即可（存档自动接力，已提交的不会重复出现）。
+- **某首歌的流是死的**（实测第 17 首：190 秒的曲子 2 分半只缓冲到 6 秒，`readyState:2`、
+  `networkState:2` 一直 loading，`currentTime` 停在 4 秒，页面倒计时也冻在 11S）。
+  看门狗救不了它 —— 播放进度确实在极慢地爬，`kicks` 会被不断重置，永远到不了 `STALLED`。
+  **判据**：`buffered.end(0)` 几十秒都不涨。**解法**：重开网址重新取流，实测一次就好
+  （缓冲立刻到 74 秒）。`maxWait` 已放宽到 180 秒，但别指望死等能等出来。
 - Chrome 扩展中途断连不影响评定 —— **driver 跑在页面里会自己继续**；
   按第 1 步自己重连（`open -a "Google Chrome"`），再 `__nmp.status()` 看进度即可，不用打扰用户。
 - 浏览器拦截自动播放时 `audio.paused=true`，driver 会反复 `play()` 并按真实播放秒数计时，不会偷跑。
@@ -101,6 +215,10 @@ driver 会直接报「这首已经评过了」并停下 —— **不要重复评
 ## 硬性规则
 
 - **必须总评 + 所有小项星星全部打完才能点提交**；driver 逐个校验星星真的点亮，没打全宁可报错也不提交。
+- **聆听门禁按真实播放计时。** 等页面自己把「聆听15S后才可评定」变成「请评定」再打分。
+  门禁偶发失效（网络差时提前可评）碰上就用，但不去制造这种状态 —— 那是平台的防刷机制。
+- 中途不要把活推回给用户：浏览器没连上自己叫起来，换页了自己重新注入，
+  只有"确实需要人"的事（登录、账号不是合伙人、网址全失效）才停下来找他。
 - 只做评定，不顺手做「写乐评」「歌曲推荐」等别的任务，除非用户明确要求。
 - 提交不可撤销：只在用户明确要求跑评定时执行；用户只说「看看 / 测一下」时用 `dryRun:true`。
 - 如实汇报：卡在第几首就说第几首，别把没做完说成做完。
