@@ -78,8 +78,11 @@ BASE = https://mp.music.163.com/<appId>/
    连上后 `tabs_context_mcp{createIfEmpty:true}` 取 tabId。**每次会话重新取 tabId，不要复用旧的。**
 2. 打开**第一批**网址，等 5~7 秒。首次可能有公告弹窗，「我知道了」常在可视区外，用 JS 点：
    `[...document.querySelectorAll('div,span,p,button,a')].find(e=>e.children.length===0&&e.textContent.trim()==='我知道了')?.click()`
+2.4 **先确认页面真的可见**：`{hidden:document.hidden, raf:1 秒内 rAF 次数}`。
+   `hidden:true` 或 rAF=0 → 窗口被遮挡，媒体一个字节都不会加载，见「窗口被遮挡时媒体根本不加载」。
 2.5 **解锁自动播放**：截图拿坐标系尺寸 → 跑探点代码算出惰性点 → `computer left_click` 点它
    （见下面「必做的前置手势」，不做这步必卡；坐标必须算，不能写死）。
+2.6 **打 CDN 改写补丁**（在注入 bot.js 之前），见「某个 CDN 节点整个是死的」。
 3. 读同目录 `bot.js`，整段作为 `javascript_tool` 的 `text` 执行 → 返回 `wyy-rate driver ready`。
 4. 按上面的 flag 拼出配置，**一次就把 20 首全下去**：`__nmp.start({songs:20, overall:3})`（异步，立即返回）。
    不要分两次跑、也不要跑完 5 首就回来问用户要不要继续 —— 5 首和 15 首是一趟活。
@@ -172,6 +175,86 @@ Chrome 会把隐藏页的 `setTimeout` 节流到秒级甚至分钟级。实测�
 
 **不要为了让它跑快就切换用户的活动标签页。**
 
+**但"隐藏"和"窗口被完全遮挡"是两回事，后者会让整趟跑不起来 —— 见下一节。**
+
+## 窗口被遮挡时媒体根本不加载（2026-09-19 踩过，最贵的一次）
+
+Chrome 判定窗口被**完全遮挡**（macOS occlusion，比如 Chrome 窗口整个被最大化的
+Terminal/编辑器压在下面）时，会把**媒体加载整个推迟**。表现：
+
+```
+document.hidden === true, visibilityState 'hidden', requestAnimationFrame 一帧都不跑
+audio.readyState 0 / networkState 2 / buffered 空，但 audio.error === null
+await audio.play() 的 promise 永远不 resolve  →  driver 卡死在 waitReady 里，连看门狗都不再记日志
+```
+
+**决定性判据（别再去猜网络/CDN/混合内容）**：在页面里造一个本地 blob 音频，
+`new Audio(URL.createObjectURL(<一段自己生成的 wav>))` 然后 `load()`。
+- blob 也 `readyState 0` → **是遮挡**，跟网络无关；
+- blob `readyState 4` → 媒体管道是好的，那才轮到查 CDN（下一节）。
+
+**两个条件（2026-09-20 测准了，昨天写窄了）**：
+1. 评定页必须是**它所在窗口的活动标签页** —— 后台标签页一样 `hidden:true`，媒体一样不加载。
+   `tabs_context_mcp` 新建的标签页**未必是活动标签页**（实测它排在 "New Tab" 后面），要显式切过去。
+2. 那个窗口**不能被 100% 盖住** —— 只要露出一部分就行。
+
+**不需要前台、不需要焦点。** 实测：VS Code 在前台、Chrome 窗口 `hasFocus()===false`，
+只要 Chrome 窗口没被完全盖住，`hidden:false`、rAF 60 帧、20 首照常跑完。
+所以首选做法是**把 Chrome 窗口摆到用户当前窗口盖不到的地方**（比如缩到右下角 360×240），
+既不抢焦点也不占屏幕；实测 Terminal 在前台时这样能稳定跑。只有在窗口确实被压死、
+又没有空位可摆时，才考虑 activate：
+
+```bash
+osascript -e 'tell application "Google Chrome"
+  set bounds of window 1 to {1560, 720, 1920, 960}   -- 挪到角落，不抢焦点
+end tell'
+```
+
+实在要抢前台（用户明确说人走了）才用：
+
+```bash
+osascript -e 'tell application "Google Chrome"
+  activate
+  set active tab index of window 1 to <评定页所在的 tab index>
+end tell'
+```
+
+- **这会抢前台焦点，属于「动用户的浏览器」。** 用户在场时先问一句（或请他把窗口放到看得见的位置）；
+  用户明确说了人已经离开 / 让你自己搞定，就直接 activate。
+- 跑之前先量一把：`{hidden:document.hidden, raf:<1 秒内 rAF 次数>}`。`hidden:false` 且 rAF 有几十帧
+  才算真可见 —— **`hidden:false` 单独不够**，遮挡状态更新有延迟，出现过 `hidden:false` 但 rAF 为 0。
+- 跑的过程中屏幕不能睡，否则又变成遮挡。开跑前挂一个
+  `nohup caffeinate -d -t 2700 &`，结束后再 `pmset displaysleepnow`（如果用户要求熄屏）。
+- **别去试无头 Chrome / `--remote-debugging-port` / `--remote-debugging-pipe`**：
+  2026-09-20 试过，auto-mode 安全分类器会直接拒（Security Weaken / Create RCE Surface），
+  而且 `--disable-backgrounding-occluded-windows`、`--disable-features=MacWebContentsOcclusion`
+  这两个启动开关在当前 Chrome 上**都挡不住遮挡判定**（实测 `hidden` 照样 true）。
+  能解决问题的只有上面那两个条件。
+
+## 某个 CDN 节点整个是死的（2026-09-19 踩过）
+
+页面发的曲流地址形如 `http://mXXX.music.126.net/<时间戳>/<token>/...`。**个别节点会整个不出数据**：
+请求挂在那里 150+ 秒只传 300 字节，`readyState` 一直 0，页面自己会弹「播放失败，已为你替换新歌曲」
+然后换一首 —— 但换来的还是同一个死节点，于是一首都评不了。2026-09-19 死的是 **m804**。
+
+**判据**：同一个路径换个 host 立刻就好。一次试完：
+
+```js
+var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
+['m701','m704','m801','m802','m804'].forEach(h => { var t=new Audio(); t.src='https://'+h+'.music.126.net'+rest; t.load(); });
+// 4~6 秒后看各自的 readyState：好节点会直接到 4、buffered 上百秒
+```
+
+**解法**：注入 bot.js **之前**先打一个 CDN 改写补丁，把 `<audio>` 的 src 钉到可用节点上：
+劫持 `HTMLMediaElement.prototype.src` 的 setter + `Element.prototype.setAttribute` +
+一个 `MutationObserver`（三条路都要，页面换歌时走的是其中之一），把死节点 host 换掉、顺手 `http:`→`https:`；
+再挂一个 2 秒一次的看门狗，发现 `readyState 0 && buffered 空` 持续 9 秒就轮换到下一个节点重新 `load()`。
+**换页后这个补丁会丢，跟解锁点击一样要重新打一遍**（第 5→6 首跳 `isContinue=1` 那次）。
+
+顺带排除掉的两个假线索，别再往这两条路上走：
+- **混合内容**（页面 https、曲流 http）：Chrome 会自动升级，实测 http 地址照样能到 `readyState 4`，不是病因；
+- **缩放/坐标离谱**：从来都不是病因，见下面那节。
+
 ## 不要碰用户的浏览器窗口
 
 - **绝不调用 `resize_window`，也不要改缩放。** 用户在同一个 Chrome 里干别的事，动窗口是干扰。
@@ -186,8 +269,9 @@ Chrome 会把隐藏页的 `setTimeout` 节流到秒级甚至分钟级。实测�
 一个稳定跑完 20 首的循环就这四步，卡住就回到第 1 步，不要找用户：
 
 1. 开当前批次网址（第一批，或已评过 5 首就直接开 `isContinue=1`），等 7~8 秒；
-2. **解锁自动播放**：截图 → 探点 → `computer left_click` 点算出来的坐标，
-   顺手 `audio.muted=true; volume=0`；**坐标每次算，别用上次的**；
+2. 确认 `hidden:false` 且 rAF 在跑（被遮挡就先解决遮挡），然后**解锁自动播放**：
+   截图 → 探点 → `computer left_click` 点算出来的坐标，顺手 `audio.muted=true; volume=0`；
+   **坐标每次算，别用上次的**；再打一遍 CDN 改写补丁；
 3. 整段注入 `bot.js`。有存档时注入就返回 `auto-resuming: N done, M left`，不用再调 `start()`；
    没存档才 `__nmp.start({songs:20, overall:3})`；
 4. 轮询 `__nmp.status()`。三种结果：
