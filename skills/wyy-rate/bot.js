@@ -299,11 +299,22 @@
         // 一批里前几首是「提交并评下一首」，最后一首是「完成评定」
         var btn = findLeaf(/提交并评下一首|完成评定|^提交$/);
         if (!btn) throw new Error('找不到提交/完成按钮');
+        var prevPager = pager;
         clickEl(btn);
         NMP.done = i;
         saveState(i < total);
         log('已提交第 ' + i + ' 首');
         await sleep(rnd(1500, 2600));
+        // 等页面真的切到下一首再往下走。不等的话（2026-09-21 踩过）会对着刚提交的那一页
+        // 再提交一次：总评/小项都还带着旧分 -> setStars 直接返回 true、pending 为空，
+        // 于是 1 秒内“评完”并提交，done 虚高 1，当天实际少评一首。
+        // 判据用“总评星归零”（新歌未评），pager 更新有滞后，不能只看它。
+        for (var w = 0; w < 12; w++) {
+          var u0 = starULs()[0];
+          var np = txt(findLeaf(/^\d+\s*\/\s*\d+$/)) || '?';
+          if (!u0 || filled(u0) === 0 || np !== prevPager || findLeaf(/^继续评定$/)) break;
+          await sleep(700);
+        }
       }
       if (!NMP.cfg.dryRun) {
         await sleep(1200);

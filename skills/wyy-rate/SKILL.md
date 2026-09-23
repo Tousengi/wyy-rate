@@ -196,6 +196,12 @@ await audio.play() 的 promise 永远不 resolve  →  driver 卡死在 waitRead
 **两个条件（2026-09-20 测准了，昨天写窄了）**：
 1. 评定页必须是**它所在窗口的活动标签页** —— 后台标签页一样 `hidden:true`，媒体一样不加载。
    `tabs_context_mcp` 新建的标签页**未必是活动标签页**（实测它排在 "New Tab" 后面），要显式切过去。
+   **Chrome 是本流程自己 `open -a` 起来的时候必然撞上这条**（2026-09-23 实测）：新窗口里
+   New Tab 是第 1 个、任务页是第 2 个，`hidden:true`、rAF 0。切过去就行，**不用 activate**：
+   ```bash
+   osascript -e 'tell application "Google Chrome" to set active tab index of window 1 to 2'
+   ```
+   （先用 `tell application "Google Chrome" to get title of tabs of window 1` 确认序号，别写死 2。）
 2. 那个窗口**不能被 100% 盖住** —— 只要露出一部分就行。
 
 **不需要前台、不需要焦点。** 实测：VS Code 在前台、Chrome 窗口 `hasFocus()===false`，
