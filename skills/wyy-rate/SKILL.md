@@ -80,10 +80,12 @@ BASE = https://mp.music.163.com/<appId>/
    `[...document.querySelectorAll('div,span,p,button,a')].find(e=>e.children.length===0&&e.textContent.trim()==='我知道了')?.click()`
 2.4 **先确认页面真的可见**：`{hidden:document.hidden, raf:1 秒内 rAF 次数}`。
    `hidden:true` 或 rAF=0 → 窗口被遮挡，媒体一个字节都不会加载，见「窗口被遮挡时媒体根本不加载」。
-2.5 **解锁自动播放**：截图拿坐标系尺寸 → 跑探点代码算出惰性点 → `computer left_click` 点它
+2.5 **解锁自动播放**：截图拿坐标系尺寸 → 执行 `window.__NMP_FRAME=[W,H];` + 同目录 `unlock.js` 全文
+   → 返回的 `frame` 就是坐标 → `computer left_click` 点它
    （见下面「必做的前置手势」，不做这步必卡；坐标必须算，不能写死）。
-2.6 **打 CDN 改写补丁**（在注入 bot.js 之前），见「某个 CDN 节点整个是死的」。
+2.6 **注入同目录 `cdn-patch.js`**（在 bot.js 之前），见「某个 CDN 节点整个是死的」。
 3. 读同目录 `bot.js`，整段作为 `javascript_tool` 的 `text` 执行 → 返回 `wyy-rate driver ready`。
+   **三个 .js 都是读文件原样注入，不要照着本文档的描述现写** —— 2026-09-23 现写的 CDN 补丁就缩了水。
 4. 按上面的 flag 拼出配置，**一次就把 20 首全下去**：`__nmp.start({songs:20, overall:3})`（异步，立即返回）。
    不要分两次跑、也不要跑完 5 首就回来问用户要不要继续 —— 5 首和 15 首是一趟活。
 5. 轮询 `__nmp.status()` 直到 `running:false`。一首约 20 秒，20 首约 7 分钟。
@@ -92,9 +94,14 @@ BASE = https://mp.music.163.com/<appId>/
    driver **自己跳到 `isContinue=1` 的网址**并把进度存进 `localStorage`。
    这时 `__nmp` 没了（换页脚本就清空），`javascript_tool` 会报 `__nmp is not defined` 或
    `status()` 拿不到 —— **别当成失败，也别问用户**：
-   **先补一次解锁点击**（换页后 user activation 清零了），再重新注入 bot.js，
+   **先补一次解锁点击**（换页后 user activation 清零了），再重新注入 `cdn-patch.js` 和 bot.js，
    注入返回里会带 `auto-resuming: 5 done, 15 left`，它自己接着跑。整个过程中途不需要用户任何操作。
-7. 打开主页核对「本期积分」，并汇报：评了几首、每首的总评与小项分（`__nmp.detail`）、当前积分、卡了几次。
+7. **先在评定页把 `__nmp.detail` 取出来**（一开主页就没了），再打开主页核对「本期积分」，并汇报：评了几首、每首的歌名/总评/小项分/实际听了几秒（`__nmp.detail`）、
+   当前积分、卡了几次。**`listened` 明显不到 15 秒的那首要解释**：门禁本来就满足，还是页面没切歌导致的重复提交
+   （后者积分会少 1；2026-09-21 踩过，`bot.js` 提交后已等总评星归零才往下走）。换页后 `__nmp.detail` 会从存档接上，不会丢前 5 首。
+8. **收尾**：`tabs_close_mcp` 关掉任务标签（MCP 标签组随之消失，不留已保存的组）；
+   Chrome 是本流程第 1 步自己 `open -a` 起来的 → 直接退出 Chrome（`osascript -e 'quit app "Google Chrome"'`）；
+   杀掉开跑时挂的 `caffeinate`。
 
 ## 判断「今天已经做完」
 
@@ -118,33 +125,9 @@ Chrome 拦掉。只有 `computer` 的 `left_click`（走 CDP 的可信输入事�
 
 **但绝对不要写死坐标** —— 每个人屏幕尺寸、窗口大小、页面缩放都不一样，写死会点到别的东西。
 坐标要算出来：先截图拿到坐标系尺寸，再按比例扫一个"祖先链上没有 onClick、不在按钮/星星里"的
-惰性点，最后按 `坐标系宽 / innerWidth` 换算。整套探点代码（`computer screenshot` 拿到
-`coordinate frame: W×H` 后，把 `FRAME_W/FRAME_H` 填进去执行，返回 `pick.frame` 就是要点的坐标）：
-
-```js
-const FRAME_W = 1568, FRAME_H = 734;   // ← 换成截图报的 coordinate frame
-function inert(el) {
-  var n = el;
-  for (var i = 0; i < 5 && n; i++) {
-    if (['BUTTON','A','LI','UL'].indexOf(n.tagName) >= 0) return false;
-    var ks = Object.keys(n).filter(s => s.indexOf('__react') === 0);
-    for (var j = 0; j < ks.length; j++) {
-      var v = n[ks[j]];
-      if (v && (v.onClick || (v.memoizedProps && v.memoizedProps.onClick))) return false;
-    }
-    n = n.parentElement;
-  }
-  return !!el;
-}
-var pick = null, fx = [0.5,0.3,0.7,0.1,0.9], fy = [0.02,0.05,0.10,0.5,0.95];
-for (var yi = 0; yi < fy.length && !pick; yi++)
-  for (var xi = 0; xi < fx.length && !pick; xi++) {
-    var x = innerWidth * fx[xi], y = innerHeight * fy[yi];
-    if (inert(document.elementFromPoint(x, y)))
-      pick = { frame: [Math.round(x * FRAME_W / innerWidth), Math.round(y * FRAME_H / innerHeight)] };
-  }
-pick
-```
+惰性点，最后按 `坐标系宽 / innerWidth` 换算。这套探点代码就是同目录的 **`unlock.js`**：
+`computer screenshot` 拿到 `coordinate frame: W×H` 后，执行 `window.__NMP_FRAME=[W,H];` 拼上 `unlock.js`
+全文，返回的 `frame` 就是要点的坐标（顺带返回命中元素的 `tag`/`text`，方便确认没点到按钮上）。
 
 实测（1920 最大化窗口、该域缩放 25%、`innerWidth 7680`）：第一个候选点 (50%, 2%) 命中歌名
 `H4`，算出 `[784, 15]`，点完 `hasBeenActive === true`、音频起播。换别的屏幕比例会算出别的坐标，
@@ -161,19 +144,16 @@ pick
 
 ## 后台标签页的定时器节流（2026-09-18 踩过）
 
-用户会在同一个 Chrome 里干别的事，所以评定页**基本一直是隐藏标签页**（`document.hidden===true`），
-Chrome 会把隐藏页的 `setTimeout` 节流到秒级甚至分钟级。实测后果：
+评定页一旦变成隐藏页（`document.hidden===true`），Chrome 会把 `setTimeout` 节流到秒级甚至分钟级。实测后果：
 
 - 小项循环从 3 秒变成 **2 分 41 秒**（一首 2.5 分钟 → 20 首要 50 分钟）；
 - 看门狗误报「播放卡住」：音频明明在播，只是两次循环迭代的间隔被拉长超过了阈值，
   踢满 4 次就抛假 `STALLED`。
 
-`bot.js` 里已经解决，不要试图靠"把标签页切到前台"来绕：
+`bot.js` 里已经解决（定时器层面）：
 - `sleep()` 用 `setTimeout` + 音频 `timeupdate` 双时钟，谁先到谁唤醒。媒体播放不受节流、
   `timeupdate` 每秒约 4 次照常触发，所以隐藏页里 sleep 也按真实时间走。
 - 看门狗阈值放宽到 6 秒，且**播放一恢复就把踢计数清零**，切歌的短暂 paused 不再累进成 STALLED。
-
-**不要为了让它跑快就切换用户的活动标签页。**
 
 **但"隐藏"和"窗口被完全遮挡"是两回事，后者会让整趟跑不起来 —— 见下一节。**
 
@@ -206,9 +186,9 @@ await audio.play() 的 promise 永远不 resolve  →  driver 卡死在 waitRead
 
 **不需要前台、不需要焦点。** 实测：VS Code 在前台、Chrome 窗口 `hasFocus()===false`，
 只要 Chrome 窗口没被完全盖住，`hidden:false`、rAF 60 帧、20 首照常跑完。
-所以首选做法是**把 Chrome 窗口摆到用户当前窗口盖不到的地方**（比如缩到右下角 360×240），
-既不抢焦点也不占屏幕；实测 Terminal 在前台时这样能稳定跑。只有在窗口确实被压死、
-又没有空位可摆时，才考虑 activate：
+正常情况下用户空着跑、没人遮挡，**正常大小的窗口即可**。真被盖住了（rAF 掉到 0），
+**把 Chrome 窗口挪到盖不到的地方**（比如右下角 360×240），不用问 —— 这个 Chrome 是本流程自己开的（见下面
+「这个 Chrome 归谁」）；不抢焦点也能恢复，2026-09-22 实测挪开即恢复。只有挪了也不行时才 activate：
 
 ```bash
 osascript -e 'tell application "Google Chrome"
@@ -225,8 +205,8 @@ osascript -e 'tell application "Google Chrome"
 end tell'
 ```
 
-- **这会抢前台焦点，属于「动用户的浏览器」。** 用户在场时先问一句（或请他把窗口放到看得见的位置）；
-  用户明确说了人已经离开 / 让你自己搞定，就直接 activate。
+- **这会抢前台焦点**，打断用户在别的 app 里的操作。用户说了人不在 / 让你自己搞定就直接 activate；
+  否则优先挪窗口，挪窗口能解决就不 activate。
 - 跑之前先量一把：`{hidden:document.hidden, raf:<1 秒内 rAF 次数>}`。`hidden:false` 且 rAF 有几十帧
   才算真可见 —— **`hidden:false` 单独不够**，遮挡状态更新有延迟，出现过 `hidden:false` 但 rAF 为 0。
 - 跑的过程中屏幕不能睡，否则又变成遮挡。开跑前挂一个
@@ -251,7 +231,7 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
 // 4~6 秒后看各自的 readyState：好节点会直接到 4、buffered 上百秒
 ```
 
-**解法**：注入 bot.js **之前**先打一个 CDN 改写补丁，把 `<audio>` 的 src 钉到可用节点上：
+**解法**：注入 bot.js **之前**先注入同目录的 **`cdn-patch.js`**（`window.__nmpCdn.status()` 看它换过几次节点）。它做的是：
 劫持 `HTMLMediaElement.prototype.src` 的 setter + `Element.prototype.setAttribute` +
 一个 `MutationObserver`（三条路都要，页面换歌时走的是其中之一），把死节点 host 换掉、顺手 `http:`→`https:`；
 再挂一个 2 秒一次的看门狗，发现 `readyState 0 && buffered 空` 持续 9 秒就轮换到下一个节点重新 `load()`。
@@ -261,14 +241,21 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
 - **混合内容**（页面 https、曲流 http）：Chrome 会自动升级，实测 http 地址照样能到 `readyState 4`，不是病因；
 - **缩放/坐标离谱**：从来都不是病因，见下面那节。
 
-## 不要碰用户的浏览器窗口
+## 这个 Chrome 归谁（2026-09-23 更正，之前写反了）
 
-- **绝不调用 `resize_window`，也不要改缩放。** 用户在同一个 Chrome 里干别的事，动窗口是干扰。
-- 这页的 rem 布局在非 100% 缩放下 `getBoundingClientRect` 会给出很夸张的数（viewport 被算成
+**跑评定用的 Chrome 默认就是本流程自己开、自己关的**（用户原话：「浏览器本来设定的就是你自己打开，做完了再关上」）。
+所以：
+
+- 第 1 步 `list_connected_browsers` 为空 → 自己 `open -a` 起来；**这个窗口归本流程**，被遮挡了直接挪、
+  跑完直接退出 Chrome，都不用问。
+- **例外**：开跑时 Chrome 本来就开着、里面有用户自己的窗口 → 那是他在用的浏览器。只动
+  `tabs_context_mcp` 新建的那个任务窗口/标签，**不退出 Chrome**，跑完只关自己的标签；他的窗口不挪、不改大小。
+- 无论哪种，**都不调 `resize_window`、不改页面缩放** —— 没必要：
+  这页的 rem 布局在非 100% 缩放下 `getBoundingClientRect` 会给出很夸张的数（viewport 被算成
   7680px 宽、元素 y=10074、隐藏弹窗 x=-119988 之类）—— **这些不是故障，不用管**：
   driver 打星星、点提交全走 DOM `.click()`，不依赖坐标，缩放多少都能跑。
-  唯一需要坐标的就是上面那一次解锁点击，点页面顶部就行。
-- 别把这些坐标当成"排版坏了"去找用户改缩放。真正会卡死的只有 `NO_USER_GESTURE`。
+  唯一需要坐标的就是那一次解锁点击，`unlock.js` 会按当前尺寸换算。
+- 别把这些坐标当成"排版坏了"去找用户改缩放。真正会卡死的只有 `NO_USER_GESTURE`、遮挡、死节点。
 
 ## 全自动循环（用户只输一条命令，中途别问他任何事）
 
@@ -276,8 +263,8 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
 
 1. 开当前批次网址（第一批，或已评过 5 首就直接开 `isContinue=1`），等 7~8 秒；
 2. 确认 `hidden:false` 且 rAF 在跑（被遮挡就先解决遮挡），然后**解锁自动播放**：
-   截图 → 探点 → `computer left_click` 点算出来的坐标，顺手 `audio.muted=true; volume=0`；
-   **坐标每次算，别用上次的**；再打一遍 CDN 改写补丁；
+   截图 → `unlock.js` 探点 → `computer left_click` 点算出来的坐标，顺手 `audio.muted=true; volume=0`；
+   **坐标每次算，别用上次的**；再注入一遍 `cdn-patch.js`；
 3. 整段注入 `bot.js`。有存档时注入就返回 `auto-resuming: N done, M left`，不用再调 `start()`；
    没存档才 `__nmp.start({songs:20, overall:3})`；
 4. 轮询 `__nmp.status()`。三种结果：

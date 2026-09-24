@@ -117,6 +117,12 @@
     e.click();
   }
   var audio = function () { return document.querySelector('audio'); };
+  // 歌名：页面顶部是 H4（2026-09-23 解锁探点命中的就是它），只找 h1~h3 会全是空串
+  function songTitle() {
+    var hs = document.querySelectorAll('#app h1, #app h2, #app h3, #app h4');
+    for (var i = 0; i < hs.length; i++) if (txt(hs[i]) && vis(hs[i])) return txt(hs[i]);
+    return '';
+  }
 
   function log(m, extra) {
     var row = { t: new Date().toLocaleTimeString('zh-CN'), m: m };
@@ -227,7 +233,8 @@
       var uls = starULs();
       var played = a ? a.currentTime : 0;
       // 有提示就以提示为准；没提示时必须确认真的播够 15 秒，别空等也别偷跑
-      if (uls.length && (hint ? /请评定/.test(txt(hint)) : played >= (NMP.cfg.listen || 15))) return true;
+      // 返回实际播放秒数记进 detail：秒数很小 = 门禁本来就满足 / 页面没切歌，一眼能分（2026-09-23）
+      if (uls.length && (hint ? /请评定/.test(txt(hint)) : played >= (NMP.cfg.listen || 15))) return Math.round(played);
       await sleep(700);
     }
     throw new Error('等待聆听超时');
@@ -249,11 +256,13 @@
       for (var i = NMP.done + 1; i <= total; i++) {
         if (NMP.abort) throw new Error('已手动中止');
         var pager = txt(findLeaf(/^\d+\s*\/\s*\d+$/)) || '?';
-        var title = txt(document.querySelector('#app h1, #app h2, #app h3')) || '';
-        log('第 ' + i + '/' + total + ' 首开始 [' + pager + '] ' + title);
+        log('第 ' + i + '/' + total + ' 首开始 [' + pager + '] ' + songTitle());
 
         await ensureRatingUI();
-        await waitReady(NMP.cfg.maxWait);
+        var listened = await waitReady(NMP.cfg.maxWait);
+        // 过了门禁再取歌名/页码：刚切歌那一下页面上可能还是上一首
+        var title = songTitle();
+        pager = txt(findLeaf(/^\d+\s*\/\s*\d+$/)) || pager;
 
         var uls = starULs();
         if (!uls.length) throw new Error('找不到星星控件');
@@ -290,9 +299,9 @@
         var unrated = [];
         for (var q = 0; q < uls.length; q++) if (filled(uls[q]) === 0) unrated.push(q);
         if (unrated.length) throw new Error('还有 ' + unrated.length + ' 项没打星，不提交');
-        log('小项 ' + subs.join(' / '));
+        log('小项 ' + subs.join(' / ') + ' | 听了 ' + listened + ' 秒');
 
-        NMP.detail.push({ song: title, pager: pager, overall: NMP.cfg.overall, subs: subs });
+        NMP.detail.push({ song: title, pager: pager, listened: listened, overall: NMP.cfg.overall, subs: subs });
         if (NMP.cfg.dryRun) { log('dryRun：到此为止，不提交'); break; }
 
         await sleep(rnd(400, 900));
