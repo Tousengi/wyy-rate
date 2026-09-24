@@ -2,7 +2,8 @@
  * 页面换歌换来的还是同一个死节点。本补丁在 bot.js 之前注入，做两件事：
  *   1) 改写：劫持 HTMLMediaElement.prototype.src 的 setter、Element.prototype.setAttribute、
  *      外加一个 MutationObserver —— 页面换歌走的是其中之一，三条路都要堵。
- *      只换掉已判死的 host，顺手 http: -> https:；好节点不动。
+ *      只改写已判死的 host（顺带 http: -> https:）；好节点连协议都不动 —— 2026-09-24 实测注入时
+ *      把好节点的 http 改成 https 会让当前这首重新加载、currentTime 归零，detail 里就记成「听了 0 秒」。
  *   2) 看门狗：Worker 时钟每 2 秒查一次，某个 <audio> networkState=LOADING 且
  *      readyState 0、buffered 空持续 9 秒 -> 判当前 host 死，轮换到下一个节点重新 load()。
  * 换页后补丁会丢（跟解锁点击一样），重新注入即可；重复注入是安全的。
@@ -38,8 +39,8 @@
     if (typeof url !== 'string') return url;
     var m = RE.exec(url);
     if (!m) return url;
-    var h = P.dead[m[1]] ? nextAlive(m[1]) : m[1];
-    return 'https://' + h + '.music.126.net' + m[2];
+    if (!P.dead[m[1]]) return url;
+    return 'https://' + nextAlive(m[1]) + '.music.126.net' + m[2];
   }
   P.rewrite = rewrite;
   var isMedia = function (el) {
