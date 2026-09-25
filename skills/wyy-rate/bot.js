@@ -226,7 +226,10 @@
           kicks++; log('播放卡住，暂停→重播 (' + kicks + ')');
           try { a.pause(); await sleep(400); await a.play(); } catch (e) {}
           lastMove = Date.now();
-          if (kicks >= 4) throw new Error('STALLED');        // 交给外面刷新页面
+          // 一个字节都没拿到（readyState 0）是 cdn-patch 的活：它要 9 秒无数据才轮换节点，
+          // 踢 4 次（~26 秒）就放弃会抢在它前面（2026-09-24 实测）。装了补丁就多给它时间。
+          var limit = (window.__nmpCdn && window.__nmpCdn.installed && a.readyState === 0) ? 8 : 4;
+          if (kicks >= limit) throw new Error('STALLED');    // 交给外面刷新页面
         }
       }
       var hint = findLeaf(/请评定|聆听\s*\d+\s*S/i);

@@ -83,8 +83,10 @@ BASE = https://mp.music.163.com/<appId>/
 2.5 **解锁自动播放**：截图拿坐标系尺寸 → 执行 `window.__NMP_FRAME=[W,H];` + 同目录 `unlock.js` 全文
    → 返回的 `frame` 就是坐标 → `computer left_click` 点它
    （见下面「必做的前置手势」，不做这步必卡；坐标必须算，不能写死）。
-2.6 **注入同目录 `cdn-patch.js`**（在 bot.js 之前），见「某个 CDN 节点整个是死的」。
-3. 读同目录 `bot.js`，整段作为 `javascript_tool` 的 `text` 执行 → 返回 `wyy-rate driver ready`。
+   **`unlock.js` 返回 `activated:true` 就不用点了**（sticky activation 已在）—— 09-24、09-25 两天
+   driver 自己跳到 `isContinue=1` 后都是 `true`，同源跳转把激活态带过去了。第一批新开页面必然是 `false`，要点。
+2.6 + 3. **`cdn-patch.js` 和 `bot.js` 拼在一次 `javascript_tool` 里注入**（补丁在前），见「某个 CDN 节点整个是死的」。
+   返回 `wyy-rate driver ready`（有存档时带 `auto-resuming: …`）。两个都是幂等的，重复注入安全。
    **三个 .js 都是读文件原样注入，不要照着本文档的描述现写** —— 2026-09-23 现写的 CDN 补丁就缩了水。
 4. 按上面的 flag 拼出配置，**一次就把 20 首全下去**：`__nmp.start({songs:20, overall:3})`（异步，立即返回）。
    不要分两次跑、也不要跑完 5 首就回来问用户要不要继续 —— 5 首和 15 首是一趟活。
@@ -94,12 +96,12 @@ BASE = https://mp.music.163.com/<appId>/
    driver **自己跳到 `isContinue=1` 的网址**并把进度存进 `localStorage`。
    这时 `__nmp` 没了（换页脚本就清空），`javascript_tool` 会报 `__nmp is not defined` 或
    `status()` 拿不到 —— **别当成失败，也别问用户**：
-   **先补一次解锁点击**（换页后 user activation 清零了），再重新注入 `cdn-patch.js` 和 bot.js，
+   **先跑一次 `unlock.js`**，`activated:false` 才补点击（实测换页后通常还是 `true`），再重新注入 `cdn-patch.js` + bot.js，
    注入返回里会带 `auto-resuming: 5 done, 15 left`，它自己接着跑。整个过程中途不需要用户任何操作。
 7. **先在评定页把 `__nmp.detail` 取出来**（一开主页就没了），再打开主页核对「本期积分」，并汇报：评了几首、每首的歌名/总评/小项分/实际听了几秒（`__nmp.detail`）、
    当前积分、卡了几次。**`listened` 明显不到 15 秒的那首要解释**：门禁本来就满足，还是页面没切歌导致的重复提交
    （后者积分会少 1；2026-09-21 踩过，`bot.js` 提交后已等总评星归零才往下走）。
-   **每批第 1 首记成 0 秒是正常的**：注入前页面已经在放、门禁已满足，用积分对得上来确认。
+   （09-24 两批第 1 首都记成 0 秒，是 cdn-patch 改写好节点协议导致重载，已修；09-25 起第 1 首会记成注入前已播的秒数，比如 27。）
    `subs` 为空也出现过（09-24 第 5 首，那首是页面「替换新歌曲」换来的），积分照样 +1、是被接受的。换页后 `__nmp.detail` 会从存档接上，不会丢前 5 首。
 8. **收尾**：`tabs_close_mcp` 关掉任务标签（MCP 标签组随之消失，不留已保存的组）；
    Chrome 是本流程第 1 步自己 `open -a` 起来的 → 直接退出 Chrome（`osascript -e 'quit app "Google Chrome"'`）；
@@ -235,7 +237,7 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
 
 **解法**：注入 bot.js **之前**先注入同目录的 **`cdn-patch.js`**（`window.__nmpCdn.status()` 看它换过几次节点）。它做的是：
 劫持 `HTMLMediaElement.prototype.src` 的 setter + `Element.prototype.setAttribute` +
-一个 `MutationObserver`（三条路都要，页面换歌时走的是其中之一），把死节点 host 换掉、顺手 `http:`→`https:`；
+一个 `MutationObserver`（三条路都要，页面换歌时走的是其中之一），只把**已判死**节点的 host 换掉（顺带 `http:`→`https:`），好节点一律不动 —— 改好节点的 src 会让当前这首重载；
 再挂一个 2 秒一次的看门狗，发现 `readyState 0 && buffered 空` 持续 9 秒就轮换到下一个节点重新 `load()`。
 **换页后这个补丁会丢，跟解锁点击一样要重新打一遍**（第 5→6 首跳 `isContinue=1` 那次）。
 
@@ -280,7 +282,8 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
 
 ## 卡住与断连
 
-- 播放卡住（很常见）：driver 自带看门狗，6 秒不前进就「暂停→重播」，踢 4 次仍不动才抛 `STALLED`。
+- 播放卡住（很常见）：driver 自带看门狗，6 秒不前进就「暂停→重播」，踢 4 次仍不动才抛 `STALLED`
+  （音频 `readyState 0` 且装了 cdn-patch 时放宽到 8 次，等补丁换节点）。
   **先别重开页面**：看 `__nmpCdn.status()`，CDN 补丁的看门狗比 driver 慢（要 9 秒无数据才轮换），
   常常是 driver 先抛了 `STALLED`、补丁紧接着换好节点。音频恢复了（`readyState 4`、在走）就直接
   `__nmp.resume()`，同页接着跑（2026-09-24 实测：m804、m704 被判死换到 m701，resume 后跑完剩下 14 首）。
