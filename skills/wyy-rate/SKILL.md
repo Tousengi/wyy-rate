@@ -5,6 +5,7 @@ allowed-tools:
   - Read
   - Write
   - Bash(open -b com.google.Chrome)
+  - Bash(~/.claude/skills/wyy-rate/reset-zoom.sh)
   - Bash(osascript:*)
   - Bash(nohup caffeinate:*)
   - Bash(pkill caffeinate)
@@ -43,28 +44,41 @@ allowed-tools:
 
 **第 0 步（每次都做）**：`cat ~/.config/wyy-rate/config.json`。
 - 有 → 用里面的 `appId` 和 `defaults`（调用时给的 flag 优先于 `defaults`），直接进「执行步骤」，**不问任何问题**。
-- 没有（报 No such file）→ 本机第一次用，走下面的**首次引导**，走完写入配置，以后就不再问。
+- 没有（报 No such file）→ 本机第一次用：先按「执行步骤」第 1 步把 Chrome 连上，再弹下面的**三选一**。
 
-### 首次引导（只在没有配置文件时走一次）
+### 三选一（首次使用、以及之后任何一次需要登录时）
 
-目标：**新用户不用复制、不用填网址**。他只要在 Chrome 里打开过一次音乐合伙人网页，这边自动识别、存下来，第二次起直接干活。
+用户 2026-09-26 定的规则：**第一次运行给三个选项；第二次起全自动、一个问题都不问；
+只有后来又需要他登录时，才再次出现同样的三个选项。**
 
-1. 按「执行步骤」第 1 步把 Chrome 连上。
-2. **自动识别**：macOS 上
-   `osascript -e 'tell application id "com.google.Chrome" to get URL of tabs of windows'`，
-   在结果里找 `mp.music.163.com/<24 位十六进制>/`，取那一段当 `appId`。
-   0 个窗口时这条会报 `Can't get URL of tabs of every window`，当没找到。
-   **找到了就直接写配置、开跑，一个问题都不问。**
-3. **没找到 → 不弹选项、不让他填网址**，直接说一句：
-   「第一次使用：请在 Chrome 里打开网页版『音乐合伙人』（打开就行，不用复制网址），我识别到就自动开始。」
-   然后**不结束回合**，每 5 秒重复第 2 步（`browser_batch` 里 wait + 用 Bash 查），最多等 3 分钟。
-   - 期间识别到 → 写配置、开跑。
-   - 3 分钟没等到，或用户回复「不知道在哪 / 直接跑」→ 用内置默认 appId（它是小程序发布号，大家通用），写配置、开跑。
-   - 非 macOS（没法读所有标签）→ 直接用内置默认 appId。
-4. `mkdir -p ~/.config/wyy-rate` 后用 `Write` 写 `config.json`（`defaults` 用本文默认值：20 首 · 3 星 · 小项 2~4），
-   汇报里带一句「网址已保存，以后直接 `/wyy-rate`；想改默认星数说一声」。**不要停在这里，接着把今天的评定跑完。**
-5. 登录检查在「执行步骤」2.1 统一处理，首次和平时一样。
-6. 用内置网址打开后 404 / 白屏 → 回到第 3 步请他打开网页再识别一次，识别到的覆盖进配置。
+用 `AskUserQuestion` 弹出（header「开始方式」，单选）：
+
+| 选项 | 说明文字 | 之后怎么做 |
+|---|---|---|
+| **我自己打开网页** | 你在 Chrome 里打开网页版「音乐合伙人」并登录好，我识别到就接手 | 见下面 A |
+| **我把网址发给你** | 你从 App「音乐合伙人 → 分享 → 复制链接」复制网址发给我，我来打开；要扫码时我把登录页亮给你 | 见下面 B |
+| **退出** | 这次先不评 | 按「结束汇报」输出 `❌ 评定失败：用户选择退出，今天 0 首`，收尾后结束 |
+
+**A. 他自己打开网页**：回一句「好，打开并登录好就行，我识别到会自动开始」，然后**不结束回合**，
+每 5 秒查一次（`browser_batch` 里 wait + Bash），最多等 5 分钟：
+- macOS：`osascript -e 'tell application id "com.google.Chrome" to get URL of tabs of windows'`，
+  在结果里找 `mp.music.163.com/<24 位十六进制>/`（0 个窗口时这条会报 `Can't get URL of tabs of every window`，当没找到）。
+  找到了取那一段当 `appId`；非 macOS 就在任务标签里用 `tabs_context_mcp` 看有没有这样的地址。
+- 找到后**在自己的任务标签里**打开第一批网址（同一个 Chrome，cookie 是同一套），按 2.1 查登录：
+  已登录 → 写配置、开跑；仍是登录页 → 说「还没登录，请在那个网页里扫码登录」，继续按 A 等。
+- 5 分钟没等到 → `❌ 评定失败：未等到网页打开（原因），今天 0 首`，收尾。他再调一次就会重新出三选一。
+
+**B. 他把网址发过来**：回一句「请把网址直接发给我」，然后**结束回合等他回复**（这是唯一允许等回复的地方）。
+- 从他发来的文字里取 `mp.music.163.com/<24 位十六进制>/` 的那一段当 `appId`；
+  短链（`163cn.tv/...` 之类）先在任务标签里打开，跟随跳转后从 `location.href` 取。
+- 取不到 → 说明「没认出网址，请发『音乐合伙人』页面的分享链接」，再等一次；还不行就用内置默认 appId。
+- 打开第一批网址；落到登录页 → 走 2.1 的**扫码等待**（把 Chrome 亮到前台、每 10 秒查、最多 3 分钟），**不再重复弹三选一**。
+
+**两条路都一样**：拿到 appId 且确认已登录后，`mkdir -p ~/.config/wyy-rate` 再用 `Write` 写 `config.json`
+（`defaults` 用本文默认值：20 首 · 3 星 · 小项 2~4），汇报里带一句「已保存，以后直接 `/wyy-rate`」。
+**不要停在这里，接着把今天的评定跑完。**
+
+内置网址打开后 404 / 白屏 → 再弹一次三选一，拿到的新 appId 覆盖进配置。
 
 用户中途说「改默认 4 星」「网址换成 xxx」这类 → 更新 `config.json` 对应字段。
 
@@ -78,10 +92,9 @@ BASE = https://mp.music.163.com/<appId>/
 
 - 优先级：调用时给的网址/appId ＞ `config.json` 的 `appId` ＞ 默认值。调用时给了新的就顺手写回 `config.json`。
 - 都没有就用默认值 `68429fb40fd3640105f60c9a`（2026-09 实测可用），**不要以为它是每天变的，它是小程序发布号**。
-- **网址已经记在这里了：绝不要让用户自己开页面、也不要问他要网址。** 直接开 URL 就行；
-  只有默认值和备用 appId 都打不开时才找用户要新链接。
-- 默认值 404 / 白屏时，让用户从手机 App 里「音乐合伙人 → 分享 → 复制链接」发来一条，
-  取路径第一段作为新的 appId；备用 appId：`605ab15bcc23b01f8e8a2dfb`。
+- **有配置文件时绝不要让用户自己开页面、也不要问他要网址。** 直接开 URL 就行；
+  只有首次使用、需要登录、或默认值和备用 appId 都打不开时，才弹「三选一」。
+- 默认值 404 / 白屏时先试备用 appId：`605ab15bcc23b01f8e8a2dfb`；也打不开再弹「三选一」。
 
 三个要用的地址：
 
@@ -95,7 +108,7 @@ BASE = https://mp.music.163.com/<appId>/
 
 - Chrome 已安装 Claude in Chrome 扩展并连接。
 - **该 Chrome 里已登录网易云音乐**（登录 `music.163.com` 即可，页面走同一套 cookie）。
-  没登录/登录过期时评定页会跳到 `music.163.com/#/login` 二维码页 —— 按「执行步骤」2.1 等用户扫码，不要代填账号密码。
+  没登录/登录过期时评定页会跳到 `music.163.com/#/login` 二维码页 —— 按「执行步骤」2.1 弹三选一，不要代填账号密码。
 - 账号本身得是音乐合伙人，否则没有任务。
 
 ## 调用参数
@@ -130,7 +143,8 @@ BASE = https://mp.music.163.com/<appId>/
 ## 执行步骤
 
 1. `list_connected_browsers` 确认 Chrome 在线。**返回空数组时自己把浏览器叫起来，不要让用户动手**：
-   - macOS：`open -b com.google.Chrome`（没开就启动；开着但扩展 service worker 睡了，激活一下也会重连）
+   - macOS：先跑同目录 `reset-zoom.sh`（Chrome 没开时把该域的页面缩放恢复成 100%，开着就自动跳过），
+     再 `open -b com.google.Chrome`（没开就启动；开着但扩展 service worker 睡了，激活一下也会重连）
    - Windows：`start chrome`；Linux：`google-chrome &`
    - 然后重新 `list_connected_browsers` 复查，最多重试 3 次（每次调用本身就有几秒间隔）。
    - 仍连不上才找用户，并说明可能原因：机器刚休眠/锁屏、扩展被禁用、或没登录 claude.ai。
@@ -139,11 +153,13 @@ BASE = https://mp.music.163.com/<appId>/
 2. 打开**第一批**网址，等 5~7 秒。
 2.1 **登录检查**：`location.href` 含 `music.163.com/#/login`、或页面文字有「扫码登录」→ 登录态没了（第一次用或 cookie 过期，
    09-24 真遇到过）。这是唯一必须用户本人做的事：
-   - `osascript -e 'tell application id "com.google.Chrome" to activate'` 把登录页亮给他（此时他反正要动手，抢前台是对的），
-     然后说一句：「网易云没登录，请在弹出的 Chrome 里用网易云 App 扫码，扫完我会自动继续。」
-   - **不要结束回合等回复**：每 10 秒查一次 `location.href`（`browser_batch` 里 3 个 10 秒 `wait` + 一次 JS），
+   - **弹「三选一」**（见上文）。选 A → 按 A 等他自己打开并登录；选 B → 拿到网址后走下面的扫码等待；选「退出」→ 按结束汇报退出。
+   - **扫码等待**（选 B 之后撞上登录页时）：
+     `osascript -e 'tell application id "com.google.Chrome" to activate'` 把登录页亮给他（此时他反正要动手，抢前台是对的），
+     然后说一句：「请在弹出的 Chrome 里用网易云 App 扫码，扫完我会自动继续。」
+     **不要结束回合等回复**：每 10 秒查一次 `location.href`（`browser_batch` 里 3 个 10 秒 `wait` + 一次 JS），
      离开 login 页或 `document.cookie` 出现 `MUSIC_U` 就算登上，重新打开第一批网址往下走；最多等 3 分钟。
-   - 3 分钟还没登上 → 按「结束汇报」报 ❌ 失败（原因：未登录），收尾关标签。用户扫完再调一次即可。
+   - 等超时 → 按「结束汇报」报 ❌ 失败（原因：未登录），收尾关标签。他再调一次会重新出三选一。
    - 登上了但页面显示没有任务 / 不是合伙人 → 报 ❌ 失败（原因：账号不是音乐合伙人），不要反复重试。首次可能有公告弹窗，「我知道了」常在可视区外，用 JS 点：
    `[...document.querySelectorAll('div,span,p,button,a')].find(e=>e.children.length===0&&e.textContent.trim()==='我知道了')?.click()`
 2.4 **先确认页面真的可见**：`{hidden:document.hidden, raf:1 秒内 rAF 次数, outerWidth, outerHeight, screenY}`。
@@ -177,7 +193,7 @@ BASE = https://mp.music.163.com/<appId>/
 7.5 把本次结果写回 `config.json` 的 `lastRun`（成功、失败都写），然后按「结束汇报」输出。
 8. **收尾**：`tabs_close_mcp` 关掉任务标签（MCP 标签组随之消失，不留已保存的组）；
    Chrome 是本流程第 1 步自己 `open -a` 起来的 → 直接退出 Chrome（`osascript -e 'tell application id "com.google.Chrome" to quit'`）；
-   杀掉开跑时挂的 `caffeinate`。
+   退出后再跑一次 `reset-zoom.sh`（保证下次打开是 100%）；杀掉开跑时挂的 `caffeinate`。
 
 ## 结束汇报（第一行必须是结论）
 
@@ -220,9 +236,8 @@ Chrome 拦掉。只有 `computer` 的 `left_click`（走 CDP 的可信输入事�
 `computer screenshot` 拿到 `coordinate frame: W×H` 后，执行 `window.__NMP_FRAME=[W,H];` 拼上 `unlock.js`
 全文，返回的 `frame` 就是要点的坐标（顺带返回命中元素的 `tag`/`text`，方便确认没点到按钮上）。
 
-实测（1920 最大化窗口、该域缩放 25%、`innerWidth 7680`）：第一个候选点 (50%, 2%) 命中歌名
-`H4`，算出 `[784, 15]`，点完 `hasBeenActive === true`、音频起播。换别的屏幕比例会算出别的坐标，
-这才是要的效果。
+（09-18 实测时该域被设成了 25% 缩放、`innerWidth 7680`，第一个候选点 (50%, 2%) 命中歌名 `H4`、点完起播。
+现在页面用正常 100% 缩放，坐标照样由 `unlock.js` 按当前尺寸现算。）
 
 - 点完验一下 `navigator.userActivation.hasBeenActive === true`，再注入/`start()`。
 - **一次点击对整个页面生命周期有效**，一批 20 首只需要点一次；但**每次换页/刷新后要重新点**
@@ -347,8 +362,9 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
   跑完直接退出 Chrome，都不用问。
 - **例外**：开跑时 Chrome 本来就开着、里面有用户自己的窗口 → 那是他在用的浏览器。只动
   `tabs_context_mcp` 新建的那个任务窗口/标签，**不退出 Chrome**，跑完只关自己的标签；他的窗口不挪、不改大小。
-- 无论哪种，**都不调 `resize_window`、不改页面缩放** —— 没必要：
-  这页的 rem 布局在非 100% 缩放下 `getBoundingClientRect` 会给出很夸张的数（viewport 被算成
+- 无论哪种，**都不调 `resize_window`**。页面缩放用正常的 100%（用户 2026-09-26 要求：「网页不需要缩那么小，正常就可以」）——
+  由 `reset-zoom.sh` 在 Chrome 没运行时清掉该域的缩放记录，**不要再把它缩小**。
+  如果看到的缩放不是 100%（Chrome 开着时 reset 会跳过），也照跑、不去改：这页的 rem 布局在非 100% 缩放下 `getBoundingClientRect` 会给出很夸张的数（viewport 被算成
   7680px 宽、元素 y=10074、隐藏弹窗 x=-119988 之类）—— **这些不是故障，不用管**：
   driver 打星星、点提交全走 DOM `.click()`，不依赖坐标，缩放多少都能跑。
   唯一需要坐标的就是那一次解锁点击，`unlock.js` 会按当前尺寸换算。

@@ -7,7 +7,7 @@ DST="$HOME/.claude/skills/wyy-rate"
 mkdir -p "$HOME/.claude/skills"
 if [ -L "$DST" ]; then rm "$DST"; fi
 mkdir -p "$DST"
-cp "$SRC"/SKILL.md "$SRC"/*.js "$DST"/
+cp "$SRC"/SKILL.md "$SRC"/*.js "$SRC"/*.sh "$DST"/
 echo "已安装到 $DST"
 echo "下一步：Chrome 装好并连接 Claude in Chrome 扩展，然后在任意目录运行 claude，输入 /wyy-rate"
-echo "第一次运行会引导你确认网址、选默认评分方式；网易云没登录的话会提示你扫码。"
+echo "第一次运行会让你三选一：自己打开网页 / 把网址发给它 / 退出；以后全自动，只有需要重新登录时才再问。"
