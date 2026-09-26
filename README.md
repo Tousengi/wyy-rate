@@ -25,15 +25,29 @@
 
 ```bash
 git clone https://github.com/Tousengi/wyy-rate.git
+cd wyy-rate && ./install.sh
 ```
 
-装好重启一次，`/wyy-rate` 即可使用。
+装到 `~/.claude/skills/wyy-rate/`（用户级 skill），**之后在任何文件夹打开 `claude` 都能直接 `/wyy-rate`**。
+装的是拷贝，clone 下来的文件夹之后删掉也没关系；更新就 `git pull && ./install.sh`。
+Windows 没有 bash 的话，手动把 `skills/wyy-rate` 整个文件夹复制到 `%USERPROFILE%\.claude\skills\` 下即可。
 
 ## 使用
 
 前置
-- Chrome 装好 Claude in Chrome 扩展并连接
-- Chrome 里已经登录网易云音乐（还在修改中，可能只需要第一次手动登陆即可）。
+- Chrome 装好 Claude in Chrome 扩展并连接（Chrome 没开也行，Skill 会自己打开）
+
+### 第一次运行
+
+**先在 Chrome 里打开一次网页版「音乐合伙人」**（打开就行，不用复制网址），然后 `/wyy-rate`：
+1. 自动从 Chrome 标签里识别网址并保存到 `~/.config/wyy-rate/config.json`，以后不再需要
+2. 忘了先打开也没关系：它会提示你去打开，识别到就自动开始；等不到就用内置网址（大家通用）
+3. 网易云没登录会提示你在 Chrome 里扫码，扫完自动继续，不用重新输命令
+4. 默认 20 首 · 总评 3 星 · 小项 2~4；想改默认值直接跟它说，或删掉配置文件重来
+
+跑完第一行会直接告诉你结果：`✅ 评定成功` / `⚠️ 部分完成` / `❌ 评定失败（原因）`，后面是每首歌的明细和积分变化。
+
+### 参数
 
 ```
 /wyy-rate                      # 默认：20 首，总评 3 星，小项 2~4 星

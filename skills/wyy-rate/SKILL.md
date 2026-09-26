@@ -1,12 +1,72 @@
 ---
 name: wyy-rate
 description: 自动完成网易云音乐「音乐合伙人」当日评定任务——每日任务 5 首 + 加评 15 首，共 20 首；每首播放满 15 秒后总评 3 星、小项（旋律/演唱/歌词）随机 2~4 星，逐首提交，最后核对本期积分。用户说「评定」「打分」「合伙人任务」「跑一下评定」时使用。
+allowed-tools:
+  - Read
+  - Write
+  - Bash(open -b com.google.Chrome)
+  - Bash(osascript:*)
+  - Bash(nohup caffeinate:*)
+  - Bash(pkill caffeinate)
+  - Bash(mkdir -p ~/.config/wyy-rate)
+  - Bash(cat ~/.config/wyy-rate/config.json)
+  - mcp__claude-in-chrome__list_connected_browsers
+  - mcp__claude-in-chrome__tabs_context_mcp
+  - mcp__claude-in-chrome__tabs_create_mcp
+  - mcp__claude-in-chrome__tabs_close_mcp
+  - mcp__claude-in-chrome__navigate
+  - mcp__claude-in-chrome__computer
+  - mcp__claude-in-chrome__javascript_tool
+  - mcp__claude-in-chrome__browser_batch
+  - mcp__claude-in-chrome__read_page
+  - mcp__claude-in-chrome__find
 ---
 
 # 音乐合伙人 自动评定
 
 用 Claude in Chrome 驱动网页完成当天评定。**每天上限 20 首 = 每日任务 5 首 + 加评 15 首**；
 积分：前 5 首合计约 +8 分，加评每首 +1 分。
+
+## 配置文件与首次使用（在哪个目录调用都一样）
+
+本 skill 装在 `~/.claude/skills/wyy-rate/`，**不依赖当前工作目录**，也不依赖任何项目记忆。
+需要跨次保存的东西只有一份：`~/.config/wyy-rate/config.json`。
+
+```json
+{
+  "appId": "68429fb40fd3640105f60c9a",
+  "defaults": { "songs": 20, "overall": 3, "subMin": 2, "subMax": 4, "listen": 15 },
+  "savedAt": "2026-09-26",
+  "lastRun": { "date": "2026-09-26", "result": "success", "done": 20, "before": 272, "after": 295 }
+}
+```
+
+**第 0 步（每次都做）**：`cat ~/.config/wyy-rate/config.json`。
+- 有 → 用里面的 `appId` 和 `defaults`（调用时给的 flag 优先于 `defaults`），直接进「执行步骤」，**不问任何问题**。
+- 没有（报 No such file）→ 本机第一次用，走下面的**首次引导**，走完写入配置，以后就不再问。
+
+### 首次引导（只在没有配置文件时走一次）
+
+目标：**新用户不用复制、不用填网址**。他只要在 Chrome 里打开过一次音乐合伙人网页，这边自动识别、存下来，第二次起直接干活。
+
+1. 按「执行步骤」第 1 步把 Chrome 连上。
+2. **自动识别**：macOS 上
+   `osascript -e 'tell application id "com.google.Chrome" to get URL of tabs of windows'`，
+   在结果里找 `mp.music.163.com/<24 位十六进制>/`，取那一段当 `appId`。
+   0 个窗口时这条会报 `Can't get URL of tabs of every window`，当没找到。
+   **找到了就直接写配置、开跑，一个问题都不问。**
+3. **没找到 → 不弹选项、不让他填网址**，直接说一句：
+   「第一次使用：请在 Chrome 里打开网页版『音乐合伙人』（打开就行，不用复制网址），我识别到就自动开始。」
+   然后**不结束回合**，每 5 秒重复第 2 步（`browser_batch` 里 wait + 用 Bash 查），最多等 3 分钟。
+   - 期间识别到 → 写配置、开跑。
+   - 3 分钟没等到，或用户回复「不知道在哪 / 直接跑」→ 用内置默认 appId（它是小程序发布号，大家通用），写配置、开跑。
+   - 非 macOS（没法读所有标签）→ 直接用内置默认 appId。
+4. `mkdir -p ~/.config/wyy-rate` 后用 `Write` 写 `config.json`（`defaults` 用本文默认值：20 首 · 3 星 · 小项 2~4），
+   汇报里带一句「网址已保存，以后直接 `/wyy-rate`；想改默认星数说一声」。**不要停在这里，接着把今天的评定跑完。**
+5. 登录检查在「执行步骤」2.1 统一处理，首次和平时一样。
+6. 用内置网址打开后 404 / 白屏 → 回到第 3 步请他打开网页再识别一次，识别到的覆盖进配置。
+
+用户中途说「改默认 4 星」「网址换成 xxx」这类 → 更新 `config.json` 对应字段。
 
 ## 网址
 
@@ -16,8 +76,8 @@ description: 自动完成网易云音乐「音乐合伙人」当日评定任务�
 BASE = https://mp.music.163.com/<appId>/
 ```
 
-- 用户在调用时给了网址或 appId，就用他给的。
-- 否则用默认值 `68429fb40fd3640105f60c9a`（2026-09 实测可用），**不要以为它是每天变的，它是小程序发布号**。
+- 优先级：调用时给的网址/appId ＞ `config.json` 的 `appId` ＞ 默认值。调用时给了新的就顺手写回 `config.json`。
+- 都没有就用默认值 `68429fb40fd3640105f60c9a`（2026-09 实测可用），**不要以为它是每天变的，它是小程序发布号**。
 - **网址已经记在这里了：绝不要让用户自己开页面、也不要问他要网址。** 直接开 URL 就行；
   只有默认值和备用 appId 都打不开时才找用户要新链接。
 - 默认值 404 / 白屏时，让用户从手机 App 里「音乐合伙人 → 分享 → 复制链接」发来一条，
@@ -35,13 +95,13 @@ BASE = https://mp.music.163.com/<appId>/
 
 - Chrome 已安装 Claude in Chrome 扩展并连接。
 - **该 Chrome 里已登录网易云音乐**（登录 `music.163.com` 即可，页面走同一套 cookie）。
-  没登录会看到未登录首页 —— 让用户自己登录，不要代填账号密码。
+  没登录/登录过期时评定页会跳到 `music.163.com/#/login` 二维码页 —— 按「执行步骤」2.1 等用户扫码，不要代填账号密码。
 - 账号本身得是音乐合伙人，否则没有任务。
 
 ## 调用参数
 
 用户在 `/wyy-rate` 后面跟简短的 flag，`key value` 和 `key=value` 两种写法都认，顺序任意，
-大小写不敏感；没给的用默认值。用户用自然语言说（「只评 5 首」「总评打 4 星」）也照做。
+大小写不敏感；没给的用 `config.json` 里的 `defaults`，再没有才用下表默认值。用户用自然语言说（「只评 5 首」「总评打 4 星」）也照做。
 
 ```
 /wyy-rate                          # 默认：20 首，总评 3 星，小项 2~4 星
@@ -70,15 +130,26 @@ BASE = https://mp.music.163.com/<appId>/
 ## 执行步骤
 
 1. `list_connected_browsers` 确认 Chrome 在线。**返回空数组时自己把浏览器叫起来，不要让用户动手**：
-   - macOS：`open -a "Google Chrome"`（没开就启动；开着但扩展 service worker 睡了，激活一下也会重连）
+   - macOS：`open -b com.google.Chrome`（没开就启动；开着但扩展 service worker 睡了，激活一下也会重连）
    - Windows：`start chrome`；Linux：`google-chrome &`
    - 然后重新 `list_connected_browsers` 复查，最多重试 3 次（每次调用本身就有几秒间隔）。
    - 仍连不上才找用户，并说明可能原因：机器刚休眠/锁屏、扩展被禁用、或没登录 claude.ai。
      机器休眠这一类我这边修不了，只能请用户唤醒电脑。
    连上后 `tabs_context_mcp{createIfEmpty:true}` 取 tabId。**每次会话重新取 tabId，不要复用旧的。**
-2. 打开**第一批**网址，等 5~7 秒。首次可能有公告弹窗，「我知道了」常在可视区外，用 JS 点：
+2. 打开**第一批**网址，等 5~7 秒。
+2.1 **登录检查**：`location.href` 含 `music.163.com/#/login`、或页面文字有「扫码登录」→ 登录态没了（第一次用或 cookie 过期，
+   09-24 真遇到过）。这是唯一必须用户本人做的事：
+   - `osascript -e 'tell application id "com.google.Chrome" to activate'` 把登录页亮给他（此时他反正要动手，抢前台是对的），
+     然后说一句：「网易云没登录，请在弹出的 Chrome 里用网易云 App 扫码，扫完我会自动继续。」
+   - **不要结束回合等回复**：每 10 秒查一次 `location.href`（`browser_batch` 里 3 个 10 秒 `wait` + 一次 JS），
+     离开 login 页或 `document.cookie` 出现 `MUSIC_U` 就算登上，重新打开第一批网址往下走；最多等 3 分钟。
+   - 3 分钟还没登上 → 按「结束汇报」报 ❌ 失败（原因：未登录），收尾关标签。用户扫完再调一次即可。
+   - 登上了但页面显示没有任务 / 不是合伙人 → 报 ❌ 失败（原因：账号不是音乐合伙人），不要反复重试。首次可能有公告弹窗，「我知道了」常在可视区外，用 JS 点：
    `[...document.querySelectorAll('div,span,p,button,a')].find(e=>e.children.length===0&&e.textContent.trim()==='我知道了')?.click()`
-2.4 **先确认页面真的可见**：`{hidden:document.hidden, raf:1 秒内 rAF 次数}`。
+2.4 **先确认页面真的可见**：`{hidden:document.hidden, raf:1 秒内 rAF 次数, outerWidth, outerHeight, screenY}`。
+   2026-09-26 实测：Chrome 0 窗口时扩展新建的窗口只有 235×110、`screenY` 等于屏幕高度（落在屏幕外）→ 必然 hidden。
+   看到 `outerWidth < 400` 或 `screenY >= screen.height` 就先
+   `osascript -e 'tell application id "com.google.Chrome" to set bounds of window 1 to {100, 80, 1380, 880}'` 拉回正常大小。
    `hidden:true` 或 rAF=0 → 窗口被遮挡，媒体一个字节都不会加载，见「窗口被遮挡时媒体根本不加载」。
 2.5 **解锁自动播放**：截图拿坐标系尺寸 → 执行 `window.__NMP_FRAME=[W,H];` + 同目录 `unlock.js` 全文
    → 返回的 `frame` 就是坐标 → `computer left_click` 点它
@@ -103,9 +174,25 @@ BASE = https://mp.music.163.com/<appId>/
    （后者积分会少 1；2026-09-21 踩过，`bot.js` 提交后已等总评星归零才往下走）。
    （09-24 两批第 1 首都记成 0 秒，是 cdn-patch 改写好节点协议导致重载，已修；09-25 起第 1 首会记成注入前已播的秒数，比如 27。）
    `subs` 为空也出现过（09-24 第 5 首，那首是页面「替换新歌曲」换来的），积分照样 +1、是被接受的。换页后 `__nmp.detail` 会从存档接上，不会丢前 5 首。
+7.5 把本次结果写回 `config.json` 的 `lastRun`（成功、失败都写），然后按「结束汇报」输出。
 8. **收尾**：`tabs_close_mcp` 关掉任务标签（MCP 标签组随之消失，不留已保存的组）；
-   Chrome 是本流程第 1 步自己 `open -a` 起来的 → 直接退出 Chrome（`osascript -e 'quit app "Google Chrome"'`）；
+   Chrome 是本流程第 1 步自己 `open -a` 起来的 → 直接退出 Chrome（`osascript -e 'tell application id "com.google.Chrome" to quit'`）；
    杀掉开跑时挂的 `caffeinate`。
+
+## 结束汇报（第一行必须是结论）
+
+不管从哪一步结束，回复的**第一行**只能是下面三种之一，后面再跟明细（每首歌名/总评/小项/聆听秒数、卡了几次）：
+
+```
+✅ 评定成功：20/20 首，本期积分 272 → 295（+23）
+⚠️ 部分完成：12/20 首，卡在第 13 首（原因），已提交的 12 首不会重复；再调一次 /wyy-rate 会接着评剩下的
+❌ 评定失败：原因（未登录 / 不是合伙人 / 网址失效 / 浏览器连不上），今天 0 首
+```
+
+- 今天早就评完了（重开页面看到旧分数、没有提交按钮）→ `✅ 今天已经评过了，本期积分 X`，不算失败。
+- 积分增量对不上（20 首应 +23）要在明细里写出来，不能报成功就完了。
+- `dry` 模式写 `✅ 试跑完成（未提交）`。
+- 跟用户同语言；中文用户就全中文。
 
 ## 判断「今天已经做完」
 
@@ -183,9 +270,9 @@ await audio.play() 的 promise 永远不 resolve  →  driver 卡死在 waitRead
    **Chrome 是本流程自己 `open -a` 起来的时候必然撞上这条**（2026-09-23 实测）：新窗口里
    New Tab 是第 1 个、任务页是第 2 个，`hidden:true`、rAF 0。切过去就行，**不用 activate**：
    ```bash
-   osascript -e 'tell application "Google Chrome" to set active tab index of window 1 to 2'
+   osascript -e 'tell application id "com.google.Chrome" to set active tab index of window 1 to 2'
    ```
-   （先用 `tell application "Google Chrome" to get title of tabs of window 1` 确认序号，别写死 2。）
+   （先用 `tell application id "com.google.Chrome" to get title of tabs of window 1` 确认序号，别写死 2。）
 2. 那个窗口**不能被 100% 盖住** —— 只要露出一部分就行。
 
 **不需要前台、不需要焦点。** 实测：VS Code 在前台、Chrome 窗口 `hasFocus()===false`，
@@ -195,7 +282,7 @@ await audio.play() 的 promise 永远不 resolve  →  driver 卡死在 waitRead
 「这个 Chrome 归谁」）；不抢焦点也能恢复，2026-09-22 实测挪开即恢复。只有挪了也不行时才 activate：
 
 ```bash
-osascript -e 'tell application "Google Chrome"
+osascript -e 'tell application id "com.google.Chrome"
   set bounds of window 1 to {1560, 720, 1920, 960}   -- 挪到角落，不抢焦点
 end tell'
 ```
@@ -203,7 +290,7 @@ end tell'
 实在要抢前台（用户明确说人走了）才用：
 
 ```bash
-osascript -e 'tell application "Google Chrome"
+osascript -e 'tell application id "com.google.Chrome"
   activate
   set active tab index of window 1 to <评定页所在的 tab index>
 end tell'
@@ -244,6 +331,12 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
 顺带排除掉的两个假线索，别再往这两条路上走：
 - **混合内容**（页面 https、曲流 http）：Chrome 会自动升级，实测 http 地址照样能到 `readyState 4`，不是病因；
 - **缩放/坐标离谱**：从来都不是病因，见下面那节。
+
+## AppleScript 一律用 bundle id（2026-09-26 踩过）
+
+装了 Citrix Receiver 的机器上会有一个 Citrix 生成的「Google Chrome.app」外壳进程（`.../Citrix Receiver/Husk/...`），
+`tell application "Google Chrome"` / `open -a "Google Chrome"` 按名字解析会落到它身上：拿不到任何窗口（-1728）、
+`activate` 也激活错程序。所以本文所有脚本都写 `tell application id "com.google.Chrome"`、`open -b com.google.Chrome`，别改回名字。
 
 ## 这个 Chrome 归谁（2026-09-23 更正，之前写反了）
 
@@ -294,7 +387,7 @@ var rest = audio.src.replace(/^https?:\/\/[^/]+/,'');
   **判据**：`buffered.end(0)` 几十秒都不涨。**解法**：重开网址重新取流，实测一次就好
   （缓冲立刻到 74 秒）。`maxWait` 已放宽到 180 秒，但别指望死等能等出来。
 - Chrome 扩展中途断连不影响评定 —— **driver 跑在页面里会自己继续**；
-  按第 1 步自己重连（`open -a "Google Chrome"`），再 `__nmp.status()` 看进度即可，不用打扰用户。
+  按第 1 步自己重连（`open -b com.google.Chrome`），再 `__nmp.status()` 看进度即可，不用打扰用户。
 - 浏览器拦截自动播放时 `audio.paused=true`，driver 会反复 `play()` 并按真实播放秒数计时，不会偷跑。
 
 ## 硬性规则
